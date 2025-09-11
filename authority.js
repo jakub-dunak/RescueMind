@@ -1,0 +1,356 @@
+(() => {
+  'use strict';
+
+  console.log('[Authority] Script loaded');
+
+  const els = {
+    form: document.getElementById('incident-form'),
+    id: document.getElementById('id'),
+    name: document.getElementById('name'),
+    type: document.getElementById('type'),
+    status: document.getElementById('status'),
+    lat: document.getElementById('lat'),
+    lng: document.getElementById('lng'),
+    useGeo: document.getElementById('auth-use-geo'),
+    useIp: document.getElementById('auth-use-ip'),
+    coordHint: document.getElementById('coord-hint'),
+    add: document.getElementById('add-incident'),
+    update: document.getElementById('update-incident'),
+    list: document.getElementById('dataset-list'),
+    connectFolder: document.getElementById('connect-folder'),
+    folderHint: document.getElementById('folder-hint'),
+    editHint: document.getElementById('edit-hint'),
+  };
+
+  const state = {
+    dataset: { incidents: [] },
+    lockId: false,
+    dirHandle: null,
+    editingId: null,
+  };
+
+  function sanitize(s) { return String(s ?? '').trim(); }
+  function nowIso() { return new Date().toISOString(); }
+  function slug(s) {
+    return sanitize(s).toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') || 'incident';
+  }
+
+  function autoId() {
+    if (state.lockId) return els.id?.value;
+    const type = sanitize(els.type?.value || 'incident').toLowerCase();
+    const name = slug(els.name?.value || '');
+    const id = `${type}-${name}-${Date.now()}`;
+    if (els.id) els.id.value = id;
+    return id;
+  }
+
+  async function locateMe() {
+    if (!('geolocation' in navigator)) return false;
+    return new Promise((resolve) => {
+      navigator.geolocation.getCurrentPosition((pos) => {
+        const lat = pos.coords.latitude, lng = pos.coords.longitude;
+        if (els.lat) els.lat.value = lat.toFixed(6);
+        if (els.lng) els.lng.value = lng.toFixed(6);
+        if (els.coordHint) els.coordHint.textContent = 'Coordinates set from device location';
+        resolve(true);
+      }, (err) => {
+        if (els.coordHint) els.coordHint.textContent = 'Geolocation denied/unavailable';
+        resolve(false);
+      }, { enableHighAccuracy: true, timeout: 8000, maximumAge: 60000 });
+    });
+  }
+
+  async function ipLocate() {
+    try {
+      let res = await fetch('https://ipapi.co/json/');
+      if (res.ok) {
+        const d = await res.json();
+        if (typeof d.latitude === 'number' && typeof d.longitude === 'number') {
+          if (els.lat) els.lat.value = d.latitude.toFixed(6);
+          if (els.lng) els.lng.value = d.longitude.toFixed(6);
+          if (els.coordHint) els.coordHint.textContent = 'Coordinates set from IP location';
+          return true;
+        }
+      }
+      res = await fetch('https://get.geojs.io/v1/ip/geo.json');
+      if (res.ok) {
+        const g = await res.json();
+        const lat = parseFloat(g.latitude), lng = parseFloat(g.longitude);
+        if (!Number.isNaN(lat) && !Number.isNaN(lng)) {
+          if (els.lat) els.lat.value = lat.toFixed(6);
+          if (els.lng) els.lng.value = lng.toFixed(6);
+          if (els.coordHint) els.coordHint.textContent = 'Coordinates set from IP location';
+          return true;
+        }
+      }
+    } catch (_) { /* ignore */ }
+    if (els.coordHint) els.coordHint.textContent = 'Unable to auto-detect coordinates';
+    return false;
+  }
+
+  async function locateBestEffort() {
+    console.log('[Authority] Attempting geolocation…');
+    let ok = await locateMe();
+    console.log('[Authority] Geolocation result:', ok);
+    if (!ok) {
+      console.log('[Authority] Attempting IP location…');
+      ok = await ipLocate();
+      console.log('[Authority] IP location result:', ok);
+    }
+    return ok;
+  }
+
+  function readForm() {
+    const f = new FormData(els.form);
+    const id = sanitize(f.get('id')) || autoId();
+    return {
+      id,
+      name: sanitize(f.get('name')),
+      type: sanitize(f.get('type')) || 'Other',
+      status: sanitize(f.get('status')) || 'ongoing',
+      lat: Number(f.get('lat') || 0),
+      lng: Number(f.get('lng') || 0),
+      population: Number(f.get('population') || 0),
+      resources: sanitize(f.get('resources')),
+      constraints: sanitize(f.get('constraints')),
+      details: sanitize(f.get('details')),
+      createdAt: nowIso(),
+      updates: [],
+    };
+  }
+
+  function renderList() {
+    els.list.innerHTML = '';
+    const has = state.dataset.incidents.length > 0;
+    els.list.classList.toggle('has-items', has);
+    state.dataset.incidents.forEach((inc, idx) => {
+      const li = document.createElement('li');
+      li.classList.add('clickable');
+      const left = document.createElement('div');
+      const title = document.createElement('div');
+      title.className = 'incident-title';
+      title.textContent = `${inc.name} (${inc.type})`;
+      const meta = document.createElement('div');
+      meta.className = 'incident-meta';
+      meta.textContent = `${inc.status} · ${inc.population} affected · ${inc.lat.toFixed(4)}, ${inc.lng.toFixed(4)}`;
+      left.appendChild(title);
+      left.appendChild(meta);
+      // Clicking on the row (except on buttons) loads the incident
+      li.addEventListener('click', (e) => {
+        if (e.target.closest('button')) return;
+        loadIntoForm(inc);
+      });
+      const del = document.createElement('button');
+      del.className = 'btn';
+      del.textContent = 'Delete…';
+      del.addEventListener('click', (e) => {
+        e.stopPropagation();
+        toggleDeleteConfirm(li, idx);
+      });
+      const loadBtn = document.createElement('button');
+      loadBtn.className = 'btn secondary';
+      loadBtn.textContent = 'Load';
+      loadBtn.addEventListener('click', (e) => { e.stopPropagation(); loadIntoForm(inc); });
+      const actions = document.createElement('div');
+      actions.style.display = 'inline-flex';
+      actions.style.gap = '8px';
+      actions.appendChild(loadBtn);
+      actions.appendChild(del);
+      li.appendChild(left);
+      li.appendChild(actions);
+      els.list.appendChild(li);
+    });
+  }
+
+  function toggleDeleteConfirm(li, idx) {
+    let box = li.querySelector('.confirm-delete');
+    if (box) { box.remove(); return; }
+    box = document.createElement('span');
+    box.className = 'confirm-delete';
+    const cb = document.createElement('input');
+    cb.type = 'checkbox'; cb.id = `confirm-del-${idx}`;
+    const lab = document.createElement('label');
+    lab.setAttribute('for', cb.id);
+    lab.textContent = 'Confirm delete';
+    const ok = document.createElement('button');
+    ok.className = 'btn danger'; ok.textContent = 'Confirm'; ok.disabled = true;
+    ok.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const inc = state.dataset.incidents[idx];
+      // Remove from in-memory list
+      state.dataset.incidents.splice(idx, 1);
+      renderList();
+      // If a folder is connected, attempt to remove the file and update manifest
+      if (state.dirHandle) {
+        try {
+          const fileName = inc && inc.file ? inc.file : `${inc.id}.json`;
+          // Delete incident file
+          await state.dirHandle.removeEntry(fileName);
+          // Update index.json manifest
+          const idxHandle = await state.dirHandle.getFileHandle('index.json');
+          const idxFile = await idxHandle.getFile();
+          const text = await idxFile.text();
+          const manifest = JSON.parse(text);
+          manifest.incidents = (manifest.incidents || []).filter(x => x.file !== fileName);
+          const writable = await idxHandle.createWritable();
+          await writable.write(JSON.stringify(manifest, null, 2));
+          await writable.close();
+          if (els.folderHint) els.folderHint.textContent = 'Deleted file and updated index.json';
+        } catch (err) {
+          console.warn('Filesystem delete failed', err);
+          if (els.folderHint) els.folderHint.textContent = 'Deleted in list. Connect folder to delete files.';
+        }
+      }
+    });
+    const cancel = document.createElement('button');
+    cancel.className = 'btn'; cancel.textContent = 'Cancel';
+    cancel.addEventListener('click', (e) => { e.stopPropagation(); box.remove(); });
+    cb.addEventListener('change', () => { ok.disabled = !cb.checked; });
+    box.appendChild(cb); box.appendChild(lab); box.appendChild(ok); box.appendChild(cancel);
+    li.appendChild(box);
+  }
+
+  async function connectIncidentFolder() {
+    try {
+      if (!window.showDirectoryPicker) {
+        alert('Your browser does not support local folder access.');
+        return;
+      }
+      const dir = await window.showDirectoryPicker();
+      // Validate index.json exists
+      await dir.getFileHandle('index.json');
+      state.dirHandle = dir;
+      if (els.folderHint) els.folderHint.textContent = 'Incident folder connected.';
+    } catch (e) {
+      console.warn(e);
+      if (els.folderHint) els.folderHint.textContent = 'Failed to connect folder.';
+    }
+  }
+
+  function loadIntoForm(inc) {
+    if (!inc) return;
+    state.lockId = true;
+    state.editingId = inc.id;
+    if (els.id) els.id.value = inc.id;
+    if (els.name) els.name.value = inc.name || '';
+    if (els.type) els.type.value = inc.type || 'Other';
+    if (els.status) els.status.value = inc.status || 'ongoing';
+    if (els.lat) els.lat.value = (inc.lat ?? '').toString();
+    if (els.lng) els.lng.value = (inc.lng ?? '').toString();
+    const pop = document.getElementById('population');
+    if (pop) pop.value = (inc.population ?? 0).toString();
+    const res = document.getElementById('resources');
+    if (res) res.value = inc.resources || '';
+    const con = document.getElementById('constraints');
+    if (con) con.value = inc.constraints || '';
+    const det = document.getElementById('details');
+    if (det) det.value = inc.details || '';
+    if (els.coordHint) els.coordHint.textContent = 'Loaded from dataset';
+    if (els.update) els.update.disabled = false;
+    if (els.editHint) els.editHint.textContent = `Editing ${inc.id}`;
+  }
+
+  function updateIncident() {
+    if (!state.editingId) { alert('No incident loaded to update.'); return; }
+    const idx = state.dataset.incidents.findIndex(x => x.id === state.editingId);
+    if (idx === -1) { alert('Loaded incident not found in dataset.'); return; }
+    const existing = state.dataset.incidents[idx];
+    const f = new FormData(els.form);
+    const updated = {
+      id: existing.id,
+      name: sanitize(f.get('name')),
+      type: sanitize(f.get('type')) || existing.type,
+      status: sanitize(f.get('status')) || existing.status,
+      lat: Number(f.get('lat') || existing.lat || 0),
+      lng: Number(f.get('lng') || existing.lng || 0),
+      population: Number(f.get('population') || existing.population || 0),
+      resources: sanitize(f.get('resources')),
+      constraints: sanitize(f.get('constraints')),
+      details: sanitize(f.get('details')),
+      createdAt: existing.createdAt,
+      updates: existing.updates || [],
+      file: existing.file,
+    };
+    if (!updated.name) { alert('Please provide a Name'); return; }
+    if (updated.name.length > 80) { alert('Name too long (max 80 characters).'); return; }
+    if (updated.lat < -90 || updated.lat > 90 || updated.lng < -180 || updated.lng > 180) { alert('Coordinates out of range'); return; }
+    state.dataset.incidents[idx] = updated;
+    renderList();
+    if (els.editHint) { els.editHint.textContent = 'Incident updated'; setTimeout(() => els.editHint.textContent = `Editing ${updated.id}`, 1200); }
+  }
+
+  // legacy loader removed; using manifest-based loader
+
+  // Auto-load all incidents from data/incidents/index.json
+  async function loadFromManifest() {
+    try {
+      const res = await fetch('data/incidents/index.json', { cache: 'no-cache' });
+      if (!res.ok) throw new Error('Failed to load manifest');
+      const manifest = await res.json();
+      const items = Array.isArray(manifest.incidents) ? manifest.incidents : [];
+      const incidents = await Promise.all(items.map(async (it) => {
+        const r = await fetch(`data/incidents/${it.file}`, { cache: 'no-cache' });
+        if (!r.ok) throw new Error(`Failed to load ${it.file}`);
+        const data = await r.json();
+        return { ...data, file: it.file };
+      }));
+      state.dataset = { incidents };
+      renderList();
+    } catch (e) {
+      console.warn(e);
+      // Fallback to legacy disasters.json if present
+      try {
+        const legacy = await fetch('data/disasters.json', { cache: 'no-cache' });
+        if (legacy.ok) {
+          const data = await legacy.json();
+          state.dataset = { incidents: Array.isArray(data.incidents) ? data.incidents : [] };
+          renderList();
+        }
+      } catch (_) {}
+    }
+  }
+
+  els.add.addEventListener('click', () => {
+    const inc = readForm();
+    if (!inc.name) { alert('Please provide a Name'); return; }
+    if (!inc.lat || !inc.lng) { alert('Please provide Latitude and Longitude'); return; }
+    // Ensure unique id
+    if (state.dataset.incidents.some(x => x.id === inc.id)) {
+      alert('ID already exists — please choose a unique ID');
+      return;
+    }
+    state.dataset.incidents.push(inc);
+    renderList();
+    // Reset editing state since this is a new addition
+    state.editingId = inc.id;
+    if (els.update) els.update.disabled = false;
+    if (els.editHint) els.editHint.textContent = `Editing ${inc.id}`;
+  });
+
+  // Auto-load incidents on page load
+  loadFromManifest();
+
+  // Initialize ID and coordinates on load
+  autoId();
+  if (els.coordHint) els.coordHint.textContent = 'Detecting coordinates…';
+  locateBestEffort().then((ok) => {
+    if (!ok && els.coordHint) els.coordHint.textContent = 'Unable to auto-detect coordinates';
+  });
+
+  // Keep ID updated when name/type changes (read-only input, programmatic updates)
+  if (els.name) els.name.addEventListener('input', autoId);
+  if (els.type) els.type.addEventListener('change', autoId);
+  if (els.useGeo) els.useGeo.addEventListener('click', locateMe);
+  if (els.useIp) els.useIp.addEventListener('click', ipLocate);
+  if (els.connectFolder) els.connectFolder.addEventListener('click', connectIncidentFolder);
+  if (els.update) els.update.addEventListener('click', updateIncident);
+
+  // Clear editing state on form reset
+  if (els.form) els.form.addEventListener('reset', () => {
+    state.editingId = null;
+    if (els.update) els.update.disabled = true;
+    if (els.editHint) els.editHint.textContent = '';
+  });
+
+})();
