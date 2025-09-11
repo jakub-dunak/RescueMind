@@ -1,0 +1,16 @@
+{
+  "scenario": {
+    "type": "Flood",
+    "location": "Riverside Town",
+    "population": 500,
+    "details": "Rising river, low-lying areas inundated; need evacuation and shelters."
+  },
+  "updates": [
+    { "text": "Bridge A closed", "ts": "2025-09-11T10:00:00Z" }
+  ],
+  "options": {
+    "model": "openai/gpt-oss-20b",
+    "temperature": 0.2,
+    "max_tokens": 800
+  }
+}

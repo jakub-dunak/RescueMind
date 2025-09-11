@@ -9,12 +9,17 @@
 (function () {
   'use strict';
 
-  // Optional API configuration (kept disabled in static mode)
+  // API configuration
   const API_CONFIG = {
-    enabled: false,
-    endpoint: '/api/plan',
+    enabled: true,
+    // For local dev, default to Wrangler at 127.0.0.1:8787. Allow override via window.__PLAN_API__.
+    endpoint: (window.__PLAN_API__ || (location.port === '8787' ? '/api/plan' : 'http://127.0.0.1:8787/api/plan')),
     timeoutMs: 30000,
   };
+
+  // Data base configuration for incidents/plans fetches
+  const DATA_BASE = (window.__DATA_BASE__ || '');
+  const dataUrl = (path) => (DATA_BASE ? `${DATA_BASE.replace(/\/$/, '')}/${path.replace(/^\//, '')}` : path);
 
   const els = {
     form: document.getElementById('scenario-form'),
@@ -79,11 +84,12 @@
     };
   }
 
-  const recomputePlan = debounce(() => {
+  const recomputePlan = debounce(async () => {
     const payload = readForm();
-    const plan = generatePlanFromTemplate(payload);
-    renderPlan(plan);
-  }, 350);
+    els.plan && els.plan.setAttribute('aria-busy', 'true');
+    await requestPlanFromApi(payload);
+    els.plan && els.plan.setAttribute('aria-busy', 'false');
+  }, 700);
 
   function readForm() {
     return {
@@ -93,7 +99,8 @@
       resources: sanitize(els.resources.value),
       constraints: sanitize(els.constraints.value),
       details: sanitize(els.details.value),
-      updates: state.updates.slice(),
+      // Only include unresolved updates when generating a plan
+      updates: state.updates.filter(u => !u.resolved).map(u => ({ text: u.text, ts: u.ts })),
       incidentId: state.currentIncidentId,
     };
   }
@@ -103,29 +110,33 @@
   function renderUpdates() {
     const ul = els.updatesList;
     ul.innerHTML = '';
-    state.updates.forEach((u, idx) => {
+    // Sort: unresolved first, then by timestamp asc
+    const items = [...state.updates].sort((a, b) => {
+      const ra = a.resolved ? 1 : 0;
+      const rb = b.resolved ? 1 : 0;
+      if (ra !== rb) return ra - rb;
+      const ta = Date.parse(a.ts || '') || 0;
+      const tb = Date.parse(b.ts || '') || 0;
+      return ta - tb;
+    });
+    items.forEach((u) => {
       const li = document.createElement('li');
+      if (u.resolved) li.classList.add('resolved');
       const text = document.createElement('div');
       text.textContent = u.text;
       const meta = document.createElement('time');
       meta.dateTime = u.ts;
       meta.textContent = new Date(u.ts).toLocaleString();
       meta.className = 'meta';
-      const del = document.createElement('button');
-      del.type = 'button';
-      del.className = 'btn';
-      del.textContent = 'Remove';
-      del.addEventListener('click', () => {
-        state.updates.splice(idx, 1);
-        renderUpdates();
-        recomputePlan();
-      });
       li.appendChild(text);
       const right = document.createElement('div');
       right.style.display = 'grid';
       right.style.gap = '6px';
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = u.resolved ? 'Resolved' : 'Open';
+      right.appendChild(badge);
       right.appendChild(meta);
-      right.appendChild(del);
       li.appendChild(right);
       ul.appendChild(li);
     });
@@ -135,12 +146,12 @@
   async function loadDisasters() {
     try {
       // Prefer split-file manifest if present
-      const man = await fetch('data/incidents/index.json', { cache: 'no-cache' });
+      const man = await fetch(dataUrl('data/incidents/index.json'), { cache: 'no-cache' });
       if (man.ok) {
         const manifest = await man.json();
         const items = Array.isArray(manifest.incidents) ? manifest.incidents : [];
         const incidents = await Promise.all(items.map(async (it) => {
-          const r = await fetch(`data/incidents/${it.file}`, { cache: 'no-cache' });
+          const r = await fetch(dataUrl(`data/incidents/${it.file}`), { cache: 'no-cache' });
           if (!r.ok) throw new Error(`Failed to load ${it.file}`);
           return r.json();
         }));
@@ -153,7 +164,7 @@
     } catch (_) {}
     // Fallback to legacy disasters.json
     try {
-      const res = await fetch('data/disasters.json', { cache: 'no-cache' });
+      const res = await fetch(dataUrl('data/disasters.json'), { cache: 'no-cache' });
       if (!res.ok) throw new Error('Failed to load disasters');
       const data = await res.json();
       state.disasters = Array.isArray(data.incidents) ? data.incidents : [];
@@ -228,11 +239,13 @@
     els.resources.value = inc.resources || '';
     els.constraints.value = inc.constraints || '';
     els.details.value = inc.details || '';
-    // Load updates into state
-    state.updates = Array.isArray(inc.updates) ? inc.updates.map(u => ({ text: u.text, ts: u.ts })) : [];
+    // Load all updates; plan generation will ignore resolved ones
+    state.updates = Array.isArray(inc.updates)
+      ? inc.updates.map(u => ({ text: u.text, ts: u.ts, resolved: !!u.resolved }))
+      : [];
     renderUpdates();
-    // Generate a plan immediately
-    recomputePlan();
+    // Try to load a stored plan for this incident
+    fetchStoredPlan(id).then(plan => { if (plan) renderPlan(plan); });
     // Select in dropdown
     if (els.incidentSelect) els.incidentSelect.value = id;
     // Focus map and update hash
@@ -240,6 +253,16 @@
     updateHash(id);
     // Broadcast selection to other tabs
     if (state.bc) state.bc.postMessage({ t: 'select', id, from: state.clientId });
+  }
+
+  async function fetchStoredPlan(id) {
+    try {
+      const base = (window.__PLAN_API__ && window.__PLAN_API__.replace('/api/plan','')) || 'http://127.0.0.1:8787';
+      const res = await fetch(`${base}/data/plans/${id}.json`, { cache: 'no-cache' });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.plan || data;
+    } catch (_) { return null; }
   }
 
   // Map logic
@@ -369,20 +392,7 @@
 
   async function ipLocate() {
     try {
-      // Try ipapi.co first
-      let res = await fetch('https://ipapi.co/json/');
-      if (res.ok) {
-        const d = await res.json();
-        if (d && typeof d.latitude === 'number' && typeof d.longitude === 'number') {
-          state.userLocation = { lat: d.latitude, lng: d.longitude };
-          if (state.map) state.map.setView([d.latitude, d.longitude], 10);
-          renderDisasters();
-          plotMarkers();
-          return true;
-        }
-      }
-      // Fallback to geojs
-      res = await fetch('https://get.geojs.io/v1/ip/geo.json');
+      const res = await fetch('https://get.geojs.io/v1/ip/geo.json');
       if (res.ok) {
         const g = await res.json();
         const lat = parseFloat(g.latitude), lng = parseFloat(g.longitude);
@@ -415,13 +425,13 @@
     const t = sanitize(els.updateText.value);
     if (!t) return;
     if (t.length > 280) { alert('Update too long (max 280 characters).'); return; }
-    state.updates.push({ text: t, ts: nowIso() });
+    state.updates.push({ text: t, ts: nowIso(), resolved: false });
     els.updateText.value = '';
     renderUpdates();
     recomputePlan();
     state.history.push({ ts: nowIso(), type: 'update', text: t });
     // Broadcast update to other tabs for the same incident
-    if (state.bc && state.currentIncidentId) state.bc.postMessage({ t: 'update', id: state.currentIncidentId, update: { text: t, ts: nowIso() }, from: state.clientId });
+    if (state.bc && state.currentIncidentId) state.bc.postMessage({ t: 'update', id: state.currentIncidentId, update: { text: t, ts: nowIso(), resolved: false }, from: state.clientId });
   }
 
   // Simple, deterministic plan generator for static mode
@@ -450,7 +460,10 @@
     const actions = [];
     if (parsedResources.length) actions.push(`Allocate available resources: ${parsedResources.join('; ')}`);
     if (parsedConstraints.length) actions.push(`Mitigate constraints: ${parsedConstraints.join('; ')}`);
-    updates.slice(0, 5).forEach((u, i) => actions.push(`Incorporate update #${i + 1}: ${u.text}`));
+    updates.slice(0, 5).forEach((u) => {
+      const a = transformUpdateToAction(u.text);
+      if (a) actions.push(a);
+    });
     actions.push('Establish a 2–4 hour reassessment cycle and update plan');
 
     // Basic resource allocation
@@ -479,6 +492,36 @@
       resourcesPlan,
       risks,
     };
+  }
+
+  function transformUpdateToAction(text) {
+    const t = (text || '').trim();
+    if (!t) return '';
+    const l = t.toLowerCase();
+    // Medical emergencies
+    if (/\b(critical|injur|wound|medic|ambulance|triage)\b/.test(l)) {
+      const m = t.match(/(\d+)/);
+      const n = m ? m[1] : '';
+      return `Dispatch medical teams${n ? ` to treat ~${n} critical patients` : ''}; establish triage and transport to nearest care.`;
+    }
+    // Access/road/bridge closures
+    if (/(bridge|road|highway|access|route).*(closed|blocked|down)|\b(road|bridge)\b.*\b(closed|blocked)\b/.test(l)) {
+      return 'Reroute evacuations and logistics; update detours and communicate alternate routes.';
+    }
+    // Power outages
+    if (/(power|electric|grid).*out(age)?/.test(l)) {
+      return 'Deploy generators and lighting to critical facilities; prioritize vulnerable areas.';
+    }
+    // Shelter capacity/opening
+    if (/(shelter|center|gym).*\b(open|capacity|full)\b/.test(l)) {
+      return 'Open additional shelters or expand capacity; ensure intake, sanitation, and supplies.';
+    }
+    // Water/contamination
+    if (/(water).*\b(boil|unsafe|contaminat)/.test(l)) {
+      return 'Issue boil-water advisory; distribute bottled water and purification kits.';
+    }
+    // Generic fallback: convert statement to imperative action
+    return `Act on update: ${t}`;
   }
 
   function planToText(plan) {
@@ -568,6 +611,32 @@
     } finally { clearTimeout(to); }
   }
 
+  function selectModelForPayload(p) {
+    const detailsLen = (p.details || '').length;
+    const population = p.population || 0;
+    const updatesCount = Array.isArray(p.updates) ? p.updates.length : 0;
+    const score = (detailsLen / 600) + (population / 1500) + (updatesCount / 6);
+    const heavy = population >= 1500 || detailsLen >= 800 || score >= 3;
+    return heavy ? 'openai/gpt-oss-120b' : 'openai/gpt-oss-20b';
+  }
+
+  async function requestPlanFromApi(payload) {
+    // Guard against out-of-order responses
+    state.apiSeq = (state.apiSeq || 0) + 1;
+    const seq = state.apiSeq;
+    state.apiLatest = seq;
+    try {
+      const model = selectModelForPayload(payload);
+      const apiPlan = await maybeCallApi({ ...payload, options: { model } });
+      if (seq !== state.apiLatest) return; // stale response
+      if (apiPlan) return renderPlan(apiPlan);
+    } catch (e) {
+      if (seq !== state.apiLatest) return; // stale response
+      console.warn('API plan failed, falling back', e);
+    }
+    if (seq === state.apiLatest) renderPlan(generatePlanFromTemplate(payload));
+  }
+
   // requestPlanFromApi: removed UI controls; local template used by default
 
   // Event wiring
@@ -592,7 +661,7 @@
     els.plan.setAttribute('aria-busy', 'true');
     const payload = readForm();
     try {
-      renderPlan(generatePlanFromTemplate(payload));
+      await requestPlanFromApi(payload);
     } catch (err) {
       console.error(err);
       alert('Failed to generate plan. Falling back to local template.');
@@ -610,8 +679,7 @@
 
   els.reset.addEventListener('click', () => {
     els.form.reset();
-    state.updates = [];
-    renderUpdates();
+    // Do not remove crowd updates on main page reset
     els.plan.innerHTML = '';
     els.empty.style.display = '';
     state.lastPlan = null;
@@ -646,7 +714,13 @@
   });
 
   if (els.locateMe) {
-    els.locateMe.addEventListener('click', locateBestEffort);
+    els.locateMe.addEventListener('click', async () => {
+      const ok = await locateMe();
+      if (!ok) await ipLocate();
+    });
+  }
+  if (els.locateIp) {
+    els.locateIp.addEventListener('click', ipLocate);
   }
   if (els.nearbyOnly) {
     els.nearbyOnly.addEventListener('change', () => { renderDisasters(); plotMarkers(); });
@@ -686,25 +760,8 @@
         alert('No plan to print yet. Generate a plan first.');
         return;
       }
-      // Prefer opening a print-only window to avoid browser quirks
-      const content = els.plan?.innerHTML || '';
-      const doc = `<!doctype html><html><head><meta charset="utf-8" />
-        <title>RescueMind — Plan</title>
-        <style>
-          body{font-family: -apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Inter,Arial;line-height:1.5;margin:24px;color:#000}
-          h3{margin:16px 0 8px}
-          .meta{color:#444;margin-bottom:12px}
-          .section{margin-bottom:16px}
-          ul{margin:0 0 8px 18px;padding:0}
-          @media print{body{margin:0}}
-        </style>
-      </head><body>${els.plan ? els.plan.outerHTML : content}</body></html>`;
-      const w = window.open('', '_blank', 'noopener,noreferrer');
-      if (!w) { try { window.print(); } catch(_) {} return; }
-      w.document.write(doc);
-      w.document.close();
-      w.focus();
-      setTimeout(() => { try { w.print(); w.close(); } catch(_) {} }, 100);
+      // Use native print with print CSS to avoid opening new tabs/windows
+      try { window.print(); } catch(_) {}
     });
   }
 
@@ -791,7 +848,7 @@
           if (msg.t === 'update' && msg.id === state.currentIncidentId) {
             const exists = state.updates.some(u => u.text === msg.update.text && u.ts === msg.update.ts);
             if (!exists) {
-              state.updates.push({ text: msg.update.text, ts: msg.update.ts });
+              state.updates.push({ text: msg.update.text, ts: msg.update.ts, resolved: !!msg.update.resolved });
               renderUpdates();
               recomputePlan();
             }
@@ -819,7 +876,23 @@
           // Deduplicate by text+ts combo
           const exists = state.updates.some(u => u.text === msg.update.text && u.ts === msg.update.ts);
           if (!exists) {
-            state.updates.push({ text: msg.update.text, ts: msg.update.ts });
+            state.updates.push({ text: msg.update.text, ts: msg.update.ts, resolved: !!msg.update.resolved });
+            renderUpdates();
+            recomputePlan();
+          }
+        }
+        if (msg.t === 'update_resolve' && msg.id === state.currentIncidentId) {
+          const u = state.updates.find(u => u.text === msg.update.text && u.ts === msg.update.ts);
+          if (u) {
+            u.resolved = !!msg.update.resolved;
+            renderUpdates();
+            recomputePlan();
+          }
+        }
+        if (msg.t === 'update_delete' && msg.id === state.currentIncidentId) {
+          const i = state.updates.findIndex(u => u.text === msg.update.text && u.ts === msg.update.ts);
+          if (i >= 0) {
+            state.updates.splice(i, 1);
             renderUpdates();
             recomputePlan();
           }

@@ -1,0 +1,15 @@
+{
+  "id": "earthquake-bay-003",
+  "name": "Bay Quake Aftershocks",
+  "type": "Earthquake",
+  "status": "assessment",
+  "lat": 37.7749,
+  "lng": -122.4194,
+  "population": 2500,
+  "resources": "4 ambulances; 2 USAR teams; 40 volunteers; convention center shelter",
+  "constraints": "Elevator outages; minor road buckling; limited cell coverage",
+  "details": "Series of aftershocks reported; structural assessments in progress.",
+  "createdAt": "2025-09-11T07:20:00Z",
+  "updates": []
+}
+

@@ -1,0 +1,17 @@
+{
+  "id": "hurricane-miami-004",
+  "name": "Coastal Storm Prep — Miami",
+  "type": "Hurricane",
+  "status": "monitoring",
+  "lat": 25.7617,
+  "lng": -80.1918,
+  "population": 3200,
+  "resources": "2 shelters; 3 supply depots; 15 volunteers; 1 mobile clinic",
+  "constraints": "Storm surge risk; limited sandbags; traffic congestion",
+  "details": "Tropical storm approaching; preparing for potential hurricane upgrade within 24–36 hours.",
+  "createdAt": "2025-09-09T16:40:00Z",
+  "updates": [
+    { "text": "City issued sandbag distribution schedule.", "ts": "2025-09-10T09:00:00Z" }
+  ]
+}
+

@@ -1,0 +1,18 @@
+{
+  "id": "flood-riverside-001",
+  "name": "Riverside Flooding",
+  "type": "Flood",
+  "status": "ongoing",
+  "lat": 37.7805,
+  "lng": -122.4207,
+  "population": 500,
+  "resources": "2 ambulances; 12 volunteers; community hall shelter",
+  "constraints": "Bridge A closed; power outage south; limited boats",
+  "details": "River levels rising after heavy rainfall. Low-lying neighborhoods are inundated; shelter opening underway.",
+  "createdAt": "2025-09-11T09:30:00Z",
+  "updates": [
+    { "text": "Water over Main St.", "ts": "2025-09-11T10:00:00Z" },
+    { "text": "Shelter keyholder en route.", "ts": "2025-09-11T10:15:00Z" }
+  ]
+}
+

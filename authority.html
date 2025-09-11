@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RescueMind — Authority Console</title>
+    <meta name="description" content="Create and export official disaster incidents for RescueMind." />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="stylesheet" href="styles.css?v=1" />
+    <link rel="manifest" href="manifest.webmanifest" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">🛟</span>
+          <h1 class="title">RescueMind — Authority Console</h1>
+        </div>
+        <p class="tagline">Official incident creation & update</p>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="layout">
+        <section class="panel" aria-labelledby="create-heading">
+          <h2 id="create-heading">Create Incident</h2>
+          <form id="incident-form" class="fields" novalidate autocomplete="off">
+            <div class="field">
+              <label for="id">ID (auto‑generated)</label>
+              <input id="id" name="id" placeholder="auto-generated" readonly />
+            </div>
+            <div class="field">
+              <label for="name">Name</label>
+              <input id="name" name="name" placeholder="e.g., Riverside Flooding" />
+            </div>
+            <div class="field">
+              <label for="type">Type</label>
+              <select id="type" name="type">
+                <option>Flood</option>
+                <option>Wildfire</option>
+                <option>Earthquake</option>
+                <option>Hurricane</option>
+                <option>Other</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="status">Status</label>
+              <select id="status" name="status">
+                <option value="ongoing">ongoing</option>
+                <option value="assessment">assessment</option>
+                <option value="monitoring">monitoring</option>
+                <option value="contained">contained</option>
+              </select>
+            </div>
+            <div class="field">
+              <label for="lat">Latitude</label>
+              <input id="lat" name="lat" type="number" step="any" placeholder="e.g., 37.7749" />
+            </div>
+            <div class="field">
+              <label for="lng">Longitude</label>
+              <input id="lng" name="lng" type="number" step="any" placeholder="e.g., -122.4194" />
+            </div>
+            <div class="actions">
+              <button type="button" id="auth-use-geo" class="btn">Use My Location</button>
+              <button type="button" id="auth-use-ip" class="btn">Use IP Location</button>
+              <span id="coord-hint" class="incident-meta" aria-live="polite"></span>
+            </div>
+            <div class="field">
+              <label for="population">Affected Population</label>
+              <input id="population" name="population" type="number" min="0" step="1" placeholder="e.g., 500" />
+            </div>
+            <div class="field">
+              <label for="resources">Resources</label>
+              <textarea id="resources" name="resources" rows="2" placeholder="e.g., 2 ambulances; 10 volunteers; 1 shelter"></textarea>
+            </div>
+            <div class="field">
+              <label for="constraints">Constraints</label>
+              <textarea id="constraints" name="constraints" rows="2" placeholder="e.g., bridge out; power outage"></textarea>
+            </div>
+            <div class="field">
+              <label for="details">Details</label>
+              <textarea id="details" name="details" rows="3" placeholder="Describe the situation"></textarea>
+            </div>
+            <div class="actions">
+              <button type="button" id="add-incident" class="btn primary">Add to Dataset</button>
+              <button type="button" id="update-incident" class="btn secondary" disabled>Update Incident</button>
+              <span id="edit-hint" class="incident-meta" aria-live="polite"></span>
+              <button type="reset" class="btn">Clear</button>
+            </div>
+          </form>
+
+          <fieldset class="updates" style="margin-top: 16px;">
+            <legend>Crowd Updates</legend>
+            <div class="updates-row">
+              <label class="sr-only" for="auth-update-text">Add update</label>
+              <input id="auth-update-text" type="text" placeholder="e.g., Bridge X is down" />
+              <button type="button" id="auth-add-update" class="btn secondary">Add</button>
+            </div>
+            <ul id="auth-updates-list" class="updates-list" aria-live="polite"></ul>
+          </fieldset>
+        </section>
+
+        <section class="panel" aria-labelledby="dataset-heading">
+          <h2 id="dataset-heading">Dataset</h2>
+          <div class="actions">
+            <button type="button" id="connect-folder" class="btn">Connect Incident Folder</button>
+            <span id="folder-hint" class="incident-meta" aria-live="polite">Incidents load automatically from <code>data/incidents/</code>.</span>
+          </div>
+          <ul id="dataset-list" class="incidents-list" aria-live="polite"></ul>
+        </section>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container"><small>Offline tool; publish by replacing data/disasters.json</small></div>
+    </footer>
+
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+      }
+    </script>
+    <script>
+      // Point Authority to the workers.dev data base for incidents
+      window.__DATA_BASE__ = 'https://rescuemind-plan-proxy.jakub-dunak.workers.dev';
+    </script>
+    <script defer src="authority.js?v=11"></script>
+  </body>
+  </html>

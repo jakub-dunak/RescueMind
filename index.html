@@ -1,0 +1,167 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>RescueMind — Disaster Response Planner</title>
+    <meta name="description" content="Crowd-sourced disaster response planning — lightweight, fast, accessible." />
+    <meta name="theme-color" content="#0f172a" />
+    <link rel="stylesheet" href="styles.css?v=1" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="manifest" href="manifest.webmanifest" />
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="container header-inner">
+        <div class="brand">
+          <span class="logo" aria-hidden="true">🛟</span>
+          <h1 class="title">RescueMind</h1>
+        </div>
+        <p class="tagline">Crowd‑Sourced Disaster Response Planner</p>
+        <nav class="nav-actions">
+          <a href="authority.html" class="btn small">Authority Console</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="container">
+      <section class="layout">
+        <section class="panel panel-form" aria-labelledby="scenario-heading">
+          <h2 id="scenario-heading">Scenario</h2>
+          <section class="incidents" aria-labelledby="incidents-heading">
+            <h3 id="incidents-heading">Incidents</h3>
+            <div class="incidents-controls">
+              <label for="incident-select" class="sr-only">Select an incident</label>
+              <select id="incident-select"></select>
+              <button type="button" id="load-incident" class="btn secondary">Load Incident</button>
+              <input id="incident-search" type="search" placeholder="Search incidents…" aria-label="Search incidents" />
+            </div>
+            <div class="map-controls">
+              <div class="map-controls-left">
+                <button type="button" id="locate-me" class="btn">Use My Location</button>
+                <button type="button" id="locate-ip" class="btn">Use IP Location</button>
+                <label class="nearby-toggle"><input type="checkbox" id="nearby-only" /> Nearby only (25 km)</label>
+              </div>
+            </div>
+            <div id="map" class="map" role="img" aria-label="Incident map"></div>
+
+            <details class="new-incident" id="new-incident">
+              <summary>Report New Incident</summary>
+              <form id="new-incident-form" class="fields" autocomplete="off">
+                <div class="field">
+                  <label for="ni-name">Name</label>
+                  <input id="ni-name" placeholder="e.g., Downtown Flooding" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="ni-type">Type</label>
+                  <select id="ni-type" autocomplete="off">
+                    <option>Flood</option>
+                    <option>Wildfire</option>
+                    <option>Earthquake</option>
+                    <option>Hurricane</option>
+                    <option>Other</option>
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="ni-lat">Latitude</label>
+                  <input id="ni-lat" type="number" step="any" placeholder="e.g., 37.7749" autocomplete="off" />
+                </div>
+                <div class="field">
+                  <label for="ni-lng">Longitude</label>
+                  <input id="ni-lng" type="number" step="any" placeholder="e.g., -122.4194" autocomplete="off" />
+                </div>
+                <div class="actions">
+                  <button type="button" id="ni-use-location" class="btn">Use My Location</button>
+                  <button type="button" id="ni-add" class="btn primary">Add Incident</button>
+                </div>
+              </form>
+              <p class="incident-meta">Note: This adds a temporary local incident for planning only. To publish, use the Authority Console.</p>
+            </details>
+          </section>
+          <form id="scenario-form" novalidate autocomplete="off">
+            <div class="fields">
+              <div class="field">
+                <label for="disaster-type">Disaster Type</label>
+                <select id="disaster-type" name="type" disabled>
+                  <option value="Flood">Flood</option>
+                  <option value="Wildfire">Wildfire</option>
+                  <option value="Earthquake">Earthquake</option>
+                  <option value="Hurricane">Hurricane</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div class="field">
+                <label for="location">Location</label>
+                <input id="location" name="location" type="text" placeholder="City/Region" disabled />
+              </div>
+              <div class="field">
+                <label for="population">Affected Population</label>
+                <input id="population" name="population" type="number" min="0" step="1" placeholder="e.g., 500" disabled />
+              </div>
+              <div class="field">
+                <label for="resources">Available Resources</label>
+                <textarea id="resources" name="resources" rows="2" placeholder="e.g., 2 ambulances; 10 volunteers; 1 shelter" disabled></textarea>
+              </div>
+              <div class="field">
+                <label for="constraints">Constraints</label>
+                <textarea id="constraints" name="constraints" rows="2" placeholder="e.g., bridge out; power outage; limited roads" disabled></textarea>
+              </div>
+              <div class="field">
+                <label for="details">Scenario Details</label>
+                <textarea id="details" name="details" rows="4" placeholder="Describe the situation, hazards, and immediate needs" disabled></textarea>
+              </div>
+            </div>
+
+            <fieldset class="updates">
+              <legend>Crowd Updates</legend>
+              <div class="updates-row">
+                <label class="sr-only" for="update-text">Add update</label>
+                <input id="update-text" type="text" placeholder="e.g., Bridge X is down" />
+                <button type="button" id="add-update" class="btn secondary">Add</button>
+              </div>
+              <ul id="updates-list" class="updates-list" aria-live="polite"></ul>
+            </fieldset>
+
+            <div class="actions">
+              <button type="submit" class="btn primary">Generate Plan</button>
+              <button type="button" id="reset-form" class="btn">Reset</button>
+              <button type="button" id="copy-plan" class="btn">Copy Plan</button>
+              <button type="button" id="export-json" class="btn">Export JSON</button>
+              <button type="button" id="share-link" class="btn">Share Link</button>
+              <button type="button" id="print-plan" class="btn">Print</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel panel-output" aria-labelledby="plan-heading">
+          <h2 id="plan-heading">Plan</h2>
+          <div id="empty-state" class="empty">
+            <p>No plan yet. Enter a scenario and click “Generate Plan”.</p>
+          </div>
+          <article id="plan-output" class="plan" aria-live="polite" aria-busy="false"></article>
+        </section>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      <div class="container">
+        <small>
+          Built for rapid response planning. Static-first, privacy‑respecting. 
+        </small>
+      </div>
+    </footer>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js').catch(() => {}));
+      }
+    </script>
+    <script>
+      // Configure API + data base to use workers.dev deployment
+      window.__PLAN_API__ = 'https://rescuemind-plan-proxy.jakub-dunak.workers.dev/api/plan';
+      window.__DATA_BASE__ = 'https://rescuemind-plan-proxy.jakub-dunak.workers.dev';
+    </script>
+    <script defer src="app.js?v=11"></script>
+  </body>
+  </html>

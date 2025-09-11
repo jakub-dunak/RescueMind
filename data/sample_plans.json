@@ -1,0 +1,42 @@
+{
+  "samples": [
+    {
+      "name": "Flood — Small town",
+      "input": {
+        "type": "Flood",
+        "location": "Riverside Town",
+        "population": 500,
+        "resources": "2 ambulances; 12 volunteers; community hall shelter",
+        "constraints": "Bridge A closed; power outage in south; limited boats",
+        "details": "River levels rising after heavy rainfall. Low-lying neighborhoods already inundated.",
+        "updates": [
+          { "text": "Water over Main St.", "ts": "2025-09-11T12:00:00Z" },
+          { "text": "Shelter keyholder en route", "ts": "2025-09-11T12:15:00Z" }
+        ]
+      },
+      "plan": {
+        "summary": "Flood in Riverside Town. 500 people affected. Focus on evacuating low-lying areas and opening the community hall shelter.",
+        "priorities": [
+          "Evacuate low-lying neighborhoods",
+          "Stand up shelter with intake and supplies",
+          "Secure medical triage near affected zones"
+        ],
+        "actions": [
+          "Coordinate volunteers for door-to-door checks",
+          "Close Main St. and set detours",
+          "Schedule 3-hour reassessments with ops updates"
+        ],
+        "resourcesPlan": [
+          "Ambulances to triage points",
+          "Volunteers to supply lines",
+          "Shelter intake + sanitation"
+        ],
+        "risks": [
+          "Limited road access may delay evacuations",
+          "Power outages could impact medical and communication"
+        ]
+      }
+    }
+  ]
+}
+

@@ -1,0 +1,33 @@
+name = "rescuemind-plan-proxy"
+main = "api/plan-worker.js"
+compatibility_date = "2025-01-15"
+compatibility_flags = ["nodejs_compat"]
+
+[vars]
+# Add non-secret defaults here if needed
+
+# Local-only secrets go in .dev.vars (see .dev.vars.example)
+
+[[kv_namespaces]]
+binding = "PLAN_KV"
+# Replace the ids below after creating the namespace:
+# wrangler kv:namespace create PLAN_KV
+# wrangler kv:namespace create PLAN_KV --preview
+id = "aa33b07c67654a39a984af7bfb82bf01"
+preview_id = "REPLACE_WITH_PREVIEW_NAMESPACE_ID"
+
+[[kv_namespaces]]
+binding = "DATA_KV"
+# Replace with your namespace ids for incidents storage
+# wrangler kv:namespace create DATA_KV
+# wrangler kv:namespace create DATA_KV --preview
+id = "c290963d25684583ba872521f52291f4"
+preview_id = "REPLACE_WITH_DATA_PREVIEW_NAMESPACE_ID"
+
+[[kv_namespaces]]
+binding = "RATE_KV"
+# Optional: for rate limiting
+# wrangler kv:namespace create RATE_KV
+# wrangler kv:namespace create RATE_KV --preview
+id = "05ff6942c1fa4863af8b99e2327ac3e5"
+preview_id = "REPLACE_WITH_RATE_PREVIEW_NAMESPACE_ID"

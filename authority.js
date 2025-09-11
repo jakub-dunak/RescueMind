@@ -20,6 +20,9 @@
     connectFolder: document.getElementById('connect-folder'),
     folderHint: document.getElementById('folder-hint'),
     editHint: document.getElementById('edit-hint'),
+    authUpdatesList: document.getElementById('auth-updates-list'),
+    authUpdateText: document.getElementById('auth-update-text'),
+    authAddUpdate: document.getElementById('auth-add-update'),
   };
 
   const state = {
@@ -27,6 +30,7 @@
     lockId: false,
     dirHandle: null,
     editingId: null,
+    bc: null,
   };
 
   function sanitize(s) { return String(s ?? '').trim(); }
@@ -249,6 +253,7 @@
     if (els.coordHint) els.coordHint.textContent = 'Loaded from dataset';
     if (els.update) els.update.disabled = false;
     if (els.editHint) els.editHint.textContent = `Editing ${inc.id}`;
+    renderAuthorityUpdates();
   }
 
   function updateIncident() {
@@ -278,34 +283,135 @@
     state.dataset.incidents[idx] = updated;
     renderList();
     if (els.editHint) { els.editHint.textContent = 'Incident updated'; setTimeout(() => els.editHint.textContent = `Editing ${updated.id}`, 1200); }
+    renderAuthorityUpdates();
   }
+
+function renderAuthorityUpdates() {
+    if (!els.authUpdatesList) return;
+    const inc = state.dataset.incidents.find(x => x.id === state.editingId);
+    els.authUpdatesList.innerHTML = '';
+    if (!inc || !Array.isArray(inc.updates)) {
+      const li = document.createElement('li');
+      li.textContent = 'No updates loaded. Select an incident.';
+      els.authUpdatesList.appendChild(li);
+      return;
+    }
+    const items = [...inc.updates].sort((a, b) => {
+      const ra = a.resolved ? 1 : 0;
+      const rb = b.resolved ? 1 : 0;
+      if (ra !== rb) return ra - rb; // unresolved first
+      const ta = Date.parse(a.ts || '') || 0;
+      const tb = Date.parse(b.ts || '') || 0;
+      return ta - tb;
+    });
+    if (!items.length) {
+      const li = document.createElement('li');
+      li.textContent = 'No updates yet for this incident.';
+      els.authUpdatesList.appendChild(li);
+      return;
+    }
+    items.forEach((u, idx) => {
+      const li = document.createElement('li');
+      const text = document.createElement('div');
+      text.textContent = u.text;
+      const meta = document.createElement('time');
+      meta.className = 'meta';
+      meta.dateTime = u.ts;
+      meta.textContent = new Date(u.ts).toLocaleString();
+      const badge = document.createElement('span');
+      badge.className = 'badge';
+      badge.textContent = u.resolved ? 'Resolved' : 'Open';
+      const actions = document.createElement('div');
+      actions.style.display = 'inline-flex';
+      actions.style.gap = '8px';
+      const toggle = document.createElement('button');
+      toggle.className = 'btn';
+      toggle.textContent = u.resolved ? 'Unresolve' : 'Resolve';
+      toggle.addEventListener('click', () => {
+        u.resolved = !u.resolved;
+        if (els.editHint) els.editHint.textContent = u.resolved ? 'Update resolved' : 'Update reopened';
+        // Broadcast resolve/unresolve to main page
+        try {
+          if (state.bc && state.editingId) {
+            state.bc.postMessage({ t: 'update_resolve', id: state.editingId, update: { text: u.text, ts: u.ts, resolved: !!u.resolved }, from: 'authority' });
+          }
+        } catch (_) {}
+        // Persist changes to incident file
+        persistIncident(inc);
+        renderAuthorityUpdates();
+      });
+      const del = document.createElement('button');
+      del.className = 'btn danger';
+      del.textContent = 'Delete';
+      del.addEventListener('click', () => {
+        if (!confirm('Delete this update?')) return;
+        const i = inc.updates.indexOf(u);
+        if (i >= 0) inc.updates.splice(i, 1);
+        if (els.editHint) els.editHint.textContent = 'Update deleted';
+        // Broadcast delete to main page
+        try {
+          if (state.bc && state.editingId) {
+            state.bc.postMessage({ t: 'update_delete', id: state.editingId, update: { text: u.text, ts: u.ts }, from: 'authority' });
+          }
+        } catch (_) {}
+        // Persist changes to incident file
+        persistIncident(inc);
+        renderAuthorityUpdates();
+      });
+      li.appendChild(text);
+      const right = document.createElement('div');
+      right.style.display = 'grid';
+      right.style.gap = '6px';
+      right.appendChild(meta);
+      right.appendChild(badge);
+      actions.appendChild(toggle);
+      actions.appendChild(del);
+      right.appendChild(actions);
+      li.appendChild(right);
+      els.authUpdatesList.appendChild(li);
+    });
+  }
+
+  // (removed duplicate simplified renderAuthorityUpdates; using full-featured version above)
 
   // legacy loader removed; using manifest-based loader
 
   // Auto-load all incidents from data/incidents/index.json
   async function loadFromManifest() {
     try {
-      const res = await fetch('data/incidents/index.json', { cache: 'no-cache' });
+      const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
+      const idxUrl = base ? `${base}/data/incidents/index.json` : 'data/incidents/index.json';
+      const res = await fetch(idxUrl, { cache: 'no-cache' });
       if (!res.ok) throw new Error('Failed to load manifest');
       const manifest = await res.json();
       const items = Array.isArray(manifest.incidents) ? manifest.incidents : [];
       const incidents = await Promise.all(items.map(async (it) => {
-        const r = await fetch(`data/incidents/${it.file}`, { cache: 'no-cache' });
+        const fileUrl = base ? `${base}/data/incidents/${it.file}` : `data/incidents/${it.file}`;
+        const r = await fetch(fileUrl, { cache: 'no-cache' });
         if (!r.ok) throw new Error(`Failed to load ${it.file}`);
         const data = await r.json();
         return { ...data, file: it.file };
       }));
       state.dataset = { incidents };
       renderList();
+      // Auto-load the first incident to show updates immediately
+      if (!state.editingId && state.dataset.incidents.length) {
+        loadIntoForm(state.dataset.incidents[0]);
+      }
     } catch (e) {
       console.warn(e);
       // Fallback to legacy disasters.json if present
       try {
-        const legacy = await fetch('data/disasters.json', { cache: 'no-cache' });
+        const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
+        const legacyUrl = base ? `${base}/data/disasters.json` : 'data/disasters.json';
+        const legacy = await fetch(legacyUrl, { cache: 'no-cache' });
         if (legacy.ok) {
           const data = await legacy.json();
           state.dataset = { incidents: Array.isArray(data.incidents) ? data.incidents : [] };
           renderList();
+          if (!state.editingId && state.dataset.incidents.length) {
+            loadIntoForm(state.dataset.incidents[0]);
+          }
         }
       } catch (_) {}
     }
@@ -326,6 +432,8 @@
     state.editingId = inc.id;
     if (els.update) els.update.disabled = false;
     if (els.editHint) els.editHint.textContent = `Editing ${inc.id}`;
+    // Persist new incident to connected folder
+    persistIncident(inc);
   });
 
   // Auto-load incidents on page load
@@ -345,12 +453,42 @@
   if (els.useIp) els.useIp.addEventListener('click', ipLocate);
   if (els.connectFolder) els.connectFolder.addEventListener('click', connectIncidentFolder);
   if (els.update) els.update.addEventListener('click', updateIncident);
+  if (els.authAddUpdate && els.authUpdateText) {
+    const addFn = () => {
+      const inc = state.dataset.incidents.find(x => x.id === state.editingId);
+      if (!inc) return;
+      const t = String(els.authUpdateText.value || '').trim();
+      if (!t) return;
+      const upd = { text: t, ts: nowIso() };
+      (inc.updates || (inc.updates = [])).push(upd);
+      els.authUpdateText.value = '';
+      // Broadcast new update to main page (resolved defaults to false)
+      try {
+        if (state.bc && state.editingId) {
+          state.bc.postMessage({ t: 'update', id: state.editingId, update: { ...upd, resolved: false }, from: 'authority' });
+        }
+      } catch (_) {}
+      // Persist update addition
+      persistIncident(inc);
+      renderAuthorityUpdates();
+    };
+    els.authAddUpdate.addEventListener('click', addFn);
+    els.authUpdateText.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addFn(); } });
+  }
 
   // Clear editing state on form reset
   if (els.form) els.form.addEventListener('reset', () => {
     state.editingId = null;
     if (els.update) els.update.disabled = true;
     if (els.editHint) els.editHint.textContent = '';
+    if (els.authUpdatesList) els.authUpdatesList.innerHTML = '';
   });
+
+  // Initialize BroadcastChannel for cross-tab signals
+  try {
+    if ('BroadcastChannel' in window) {
+      state.bc = new BroadcastChannel('rescuemind');
+    }
+  } catch (_) {}
 
 })();

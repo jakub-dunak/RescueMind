@@ -1,0 +1,28 @@
+{
+  "incidents": [
+    {
+      "id": "flood-riverside-001",
+      "file": "flood-riverside-001.json"
+    },
+    {
+      "id": "earthquake-bay-003",
+      "file": "earthquake-bay-003.json"
+    },
+    {
+      "id": "hurricane-miami-004",
+      "file": "hurricane-miami-004.json"
+    },
+    {
+      "id": "landslide-golden-005",
+      "file": "landslide-golden-005.json"
+    },
+    {
+      "id": "flood-dhaka-006",
+      "file": "flood-dhaka-006.json"
+    },
+    {
+      "id": "earthquake-tokyo-007",
+      "file": "earthquake-tokyo-007.json"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "id": "flood-dhaka-006",
+  "name": "Monsoon Flooding — Dhaka",
+  "type": "Flood",
+  "status": "ongoing",
+  "lat": 23.8103,
+  "lng": 90.4125,
+  "population": 5400,
+  "resources": "Local NGOs; 3 boats; 2 clinics; 40 volunteers",
+  "constraints": "Contaminated water; blocked alleys; power cuts",
+  "details": "Monsoon rains have flooded several wards; shelters at schools opening.",
+  "createdAt": "2025-09-08T12:10:00Z",
+  "updates": [
+    { "text": "Water level peaked overnight.", "ts": "2025-09-09T03:00:00Z" },
+    { "text": "Boats deployed to Ward 12.", "ts": "2025-09-09T05:45:00Z" }
+  ]
+}
+

@@ -1,0 +1,15 @@
+{
+  "id": "earthquake-tokyo-007",
+  "name": "Tokyo Aftershocks",
+  "type": "Earthquake",
+  "status": "assessment",
+  "lat": 35.6762,
+  "lng": 139.6503,
+  "population": 4200,
+  "resources": "USAR team; 2 field hospitals; 6 ambulances; 60 volunteers",
+  "constraints": "Rail delays; elevator outages; fuel shortage",
+  "details": "Persistent aftershocks; structural inspections ongoing; temporary shelter capacity being expanded.",
+  "createdAt": "2025-09-11T03:15:00Z",
+  "updates": []
+}
+
