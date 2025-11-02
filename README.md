@@ -2,6 +2,12 @@
 
 > Empowering communities to plan smarter, faster disaster responses with AI and crowd wisdom.
 
+## Demo Video
+
+[![RescueMind Demo](https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube)](https://youtu.be/mJnrux5U6EY)
+
+*Watch the 3-minute demo to see RescueMind in action!*
+
 ## Table of Contents
 
 - [Project Overview](#project-overview)
