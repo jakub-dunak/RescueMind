@@ -18,6 +18,11 @@ export default {
       if (!val) return new Response('Not Found', { status: 404, headers: baseHeaders() });
       return new Response(val, { status: 200, headers: baseHeaders() });
     }
+    // Get auth token for authority console (protected by Cloudflare Access)
+    if (url.pathname === '/api/auth-token' && request.method === 'GET') {
+      return json({ token: env.AUTH_TOKEN });
+    }
+
     // Incidents API (Authority writes)
     if (url.pathname.startsWith('/api/incidents')) {
       const segs = url.pathname.split('/').filter(Boolean); // [api, incidents, id, ...]
@@ -58,6 +63,23 @@ export default {
         if (i >= 0) idx.incidents[i] = { id, file: fileName }; else idx.incidents.push({ id, file: fileName });
         await env.DATA_KV.put('data/incidents/index.json', JSON.stringify(idx, null, 2));
         return json({ ok: true, id, file: fileName });
+      }
+      if (method === 'DELETE' && segs.length === 3) {
+        const id = segs[2];
+        const fileKey = `data/incidents/${id}.json`;
+        // Check if incident exists
+        const exists = await env.DATA_KV.get(fileKey);
+        if (!exists) return json({ error: 'Not found' }, 404);
+        // Delete the incident file
+        await env.DATA_KV.delete(fileKey);
+        // Update manifest index
+        const idxRaw = await env.DATA_KV.get('data/incidents/index.json');
+        if (idxRaw) {
+          const idx = JSON.parse(idxRaw);
+          idx.incidents = (idx.incidents || []).filter((x) => x.id !== id);
+          await env.DATA_KV.put('data/incidents/index.json', JSON.stringify(idx, null, 2));
+        }
+        return json({ ok: true, id });
       }
       if (method === 'PATCH' && segs.length === 4 && segs[3] === 'updates') {
         const id = segs[2];
@@ -324,7 +346,7 @@ function handleOptions() {
     headers: {
       ...baseHeaders(),
       'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'content-type, authorization',
     }
   });

@@ -23,6 +23,7 @@
     authUpdatesList: document.getElementById('auth-updates-list'),
     authUpdateText: document.getElementById('auth-update-text'),
     authAddUpdate: document.getElementById('auth-add-update'),
+    authToken: document.getElementById('auth-token'),
   };
 
   const state = {
@@ -185,7 +186,32 @@
       // Remove from in-memory list
       state.dataset.incidents.splice(idx, 1);
       renderList();
-      // If a folder is connected, attempt to remove the file and update manifest
+
+      // Try to delete from API first
+      const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
+      const token = window.__AUTH_TOKEN__;
+      if (base && token) {
+        try {
+          const url = `${base}/api/incidents/${inc.id}`;
+          const response = await fetch(url, {
+            method: 'DELETE',
+            headers: {
+              'Authorization': `Bearer ${token}`
+            }
+          });
+          if (response.ok) {
+            console.log('[Authority] Incident deleted from API:', inc.id);
+            if (els.folderHint) els.folderHint.textContent = 'Deleted from server';
+            return; // Successfully deleted from API, no need for local filesystem operations
+          } else {
+            console.warn('[Authority] Failed to delete from API:', response.status);
+          }
+        } catch (err) {
+          console.warn('[Authority] API delete failed:', err);
+        }
+      }
+
+      // Fallback: If a folder is connected, attempt to remove the file and update manifest
       if (state.dirHandle) {
         try {
           const fileName = inc && inc.file ? inc.file : `${inc.id}.json`;
@@ -376,14 +402,43 @@ function renderAuthorityUpdates() {
 
   // legacy loader removed; using manifest-based loader
 
+  // Load auth token from API (protected by Cloudflare Access)
+  async function loadAuthToken() {
+    const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
+    if (!base) return;
+
+    try {
+      const response = await fetch(`${base}/api/auth-token`);
+      if (response.ok) {
+        const data = await response.json();
+        window.__AUTH_TOKEN__ = data.token;
+        console.log('[Authority] Auth token loaded successfully');
+        // Update UI to show token is available
+        if (els.authToken) {
+          els.authToken.value = '••••••••'; // Show masked token
+          els.authToken.disabled = true;
+          els.authToken.placeholder = 'Token loaded automatically';
+        }
+      } else {
+        console.warn('[Authority] Could not load auth token:', response.status);
+        // Leave manual input enabled
+      }
+    } catch (error) {
+      console.warn('[Authority] Failed to load auth token:', error);
+      // Leave manual input enabled
+    }
+  }
+
   // Auto-load all incidents from data/incidents/index.json
   async function loadFromManifest() {
     try {
       const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
       const idxUrl = base ? `${base}/data/incidents/index.json` : 'data/incidents/index.json';
+      console.log('[Authority] Loading incidents from:', idxUrl);
       const res = await fetch(idxUrl, { cache: 'no-cache' });
-      if (!res.ok) throw new Error('Failed to load manifest');
+      if (!res.ok) throw new Error(`Failed to load manifest: ${res.status} ${res.statusText}`);
       const manifest = await res.json();
+      console.log('[Authority] Successfully loaded manifest with', manifest.incidents?.length || 0, 'incidents');
       const items = Array.isArray(manifest.incidents) ? manifest.incidents : [];
       const incidents = await Promise.all(items.map(async (it) => {
         const fileUrl = base ? `${base}/data/incidents/${it.file}` : `data/incidents/${it.file}`;
@@ -399,21 +454,29 @@ function renderAuthorityUpdates() {
         loadIntoForm(state.dataset.incidents[0]);
       }
     } catch (e) {
-      console.warn(e);
+      console.warn('[Authority] Failed to load from API, falling back to offline mode:', e.message);
+      console.log('[Authority] Using offline/local data mode');
       // Fallback to legacy disasters.json if present
       try {
         const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
         const legacyUrl = base ? `${base}/data/disasters.json` : 'data/disasters.json';
+        console.log('[Authority] Trying legacy disasters.json:', legacyUrl);
         const legacy = await fetch(legacyUrl, { cache: 'no-cache' });
         if (legacy.ok) {
           const data = await legacy.json();
           state.dataset = { incidents: Array.isArray(data.incidents) ? data.incidents : [] };
+          console.log('[Authority] Loaded', state.dataset.incidents.length, 'incidents from legacy file');
           renderList();
           if (!state.editingId && state.dataset.incidents.length) {
             loadIntoForm(state.dataset.incidents[0]);
           }
+        } else {
+          console.log('[Authority] Legacy file not found, starting with empty dataset');
         }
-      } catch (_) {}
+      } catch (fallbackError) {
+        console.warn('[Authority] Legacy fallback also failed:', fallbackError.message);
+        console.log('[Authority] Starting with empty offline dataset');
+      }
     }
   }
 
@@ -436,8 +499,8 @@ function renderAuthorityUpdates() {
     persistIncident(inc);
   });
 
-  // Auto-load incidents on page load
-  loadFromManifest();
+  // Auto-load auth token and incidents on page load
+  loadAuthToken().then(() => loadFromManifest());
 
   // Initialize ID and coordinates on load
   autoId();
@@ -479,10 +542,54 @@ function renderAuthorityUpdates() {
   // Clear editing state on form reset
   if (els.form) els.form.addEventListener('reset', () => {
     state.editingId = null;
+    state.lockId = false;
     if (els.update) els.update.disabled = true;
     if (els.editHint) els.editHint.textContent = '';
     if (els.authUpdatesList) els.authUpdatesList.innerHTML = '';
   });
+
+  // Persist incident to API
+  async function persistIncident(incident) {
+    const base = (window.__DATA_BASE__ || '').replace(/\/$/, '');
+    const token = window.__AUTH_TOKEN__;
+
+    if (!base) {
+      console.warn('[Authority] No __DATA_BASE__ configured, cannot persist incident');
+      alert('API endpoint not configured. Please check __DATA_BASE__ setting.');
+      return;
+    }
+
+    if (!token) {
+      console.warn('[Authority] No __AUTH_TOKEN__ configured, cannot persist incident');
+      alert('Authorization token not available. Please ensure you have access to the authority console through Cloudflare Access.');
+      return;
+    }
+
+    try {
+      const url = `${base}/api/incidents/${incident.id}`;
+      console.log('[Authority] Persisting incident to:', url);
+
+      const response = await fetch(url, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify(incident)
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        throw new Error(`HTTP ${response.status}: ${error}`);
+      }
+
+      const result = await response.json();
+      console.log('[Authority] Incident persisted successfully:', result);
+    } catch (error) {
+      console.error('[Authority] Failed to persist incident:', error);
+      // Could show user notification here
+    }
+  }
 
   // Initialize BroadcastChannel for cross-tab signals
   try {

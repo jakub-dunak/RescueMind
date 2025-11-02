@@ -2,3 +2,4 @@
 .dev.vars.example
 description.md
 TODO.md
+.wrangler/*

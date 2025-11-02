@@ -809,9 +809,11 @@
   }
 
   // Initialize
-  loadDisasters();
+  loadDisasters().then(() => {
+    // Handle initial hash after disasters are loaded
+    handleHash();
+  });
   window.addEventListener('hashchange', handleHash);
-  handleHash();
   window.addEventListener('load', ensureMap);
   window.addEventListener('resize', () => state.map && state.map.invalidateSize());
 
